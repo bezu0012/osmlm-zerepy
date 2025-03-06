@@ -1,4 +1,4 @@
-FROM python:3.10-slim-bullseye
+FROM python:3.11-slim-bullseye
 
 # Cài đặt các gói cần thiết
 RUN apt-get update && apt-get install -y \
@@ -15,13 +15,13 @@ WORKDIR /app
 COPY . .
 
 # Cài đặt Poetry
-RUN pip install --no-cache-dir poetry==1.5.1
+RUN pip install --no-cache-dir poetry==1.7.1
 
 # Cấu hình Poetry không tạo môi trường ảo trong container
 RUN poetry config virtualenvs.create false
 
-# Cài đặt dependencies
-RUN poetry install --no-dev --no-interaction --no-ansi
+# Cài đặt dependencies, bao gồm extras cho server
+RUN poetry install --without dev --extras server --no-interaction --no-ansi
 
 # Mở cổng, Heroku sẽ ghi đè biến PORT
 EXPOSE 8000
