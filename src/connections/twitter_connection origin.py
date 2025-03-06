@@ -1,13 +1,11 @@
 import os
 import logging
-from typing import Dict, Any, List, Tuple, Iterator, Optional
+from typing import Dict, Any, List, Tuple, Iterator
 from requests_oauthlib import OAuth1Session
 from dotenv import set_key, load_dotenv
 from src.connections.base_connection import BaseConnection, Action, ActionParameter
 from src.helpers import print_h_bar
 import json,requests
-import time
-import datetime
 
 logger = logging.getLogger("connections.twitter_connection")
 
@@ -21,44 +19,7 @@ class TwitterConfigurationError(TwitterConnectionError):
 
 class TwitterAPIError(TwitterConnectionError):
     """Raised when Twitter API requests fail"""
-    def __init__(self, message, error_info=None):
-        super().__init__(message)
-        self.error_info = error_info or {}
-        self.status_code = error_info.get("status_code") if error_info else None
-        self.reset_time = error_info.get("reset_time") if error_info else None
-        self.is_rate_limit = error_info.get("is_rate_limit", False) if error_info else False
-        
-    def get_friendly_wait_time(self) -> str:
-        """Trả về thông báo thời gian chờ thân thiện với người dùng"""
-        if not self.reset_time:
-            return ""
-            
-        now = int(time.time())
-        wait_seconds = max(0, self.reset_time - now)
-        
-        if wait_seconds <= 0:
-            return "có thể thử lại ngay bây giờ"
-            
-        # Tính toán thời gian đợi
-        hours, remainder = divmod(wait_seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        
-        # Tạo chuỗi thời gian thân thiện
-        time_parts = []
-        if hours > 0:
-            time_parts.append(f"{int(hours)} giờ")
-        if minutes > 0:
-            time_parts.append(f"{int(minutes)} phút")
-        if seconds > 0 and hours == 0:  # Chỉ hiển thị giây nếu dưới 1 giờ
-            time_parts.append(f"{int(seconds)} giây")
-            
-        time_str = " ".join(time_parts)
-        
-        # Thêm thời gian chính xác khi có thể thử lại
-        reset_datetime = datetime.datetime.fromtimestamp(self.reset_time)
-        formatted_time = reset_datetime.strftime("%H:%M:%S ngày %d/%m/%Y")
-        
-        return f"{time_str} (vào {formatted_time})"
+    pass
 
 class TwitterConnection(BaseConnection):
     def __init__(self, config: Dict[str, Any]):
@@ -175,15 +136,13 @@ class TwitterConnection(BaseConnection):
         logger.debug("All required credentials found")
         return credentials
      
-    def _make_request(self, method: str, endpoint: str, use_bearer: bool = False, stream: bool = False, **kwargs) -> dict:
+    def _make_request(self, method: str, endpoint: str,use_bearer: bool = False, stream: bool = False, **kwargs) -> dict:
         """
         Make a request to the Twitter API with error handling
 
         Args:
             method: HTTP method ('get', 'post', etc.)
             endpoint: API endpoint path
-            use_bearer: Whether to use Bearer token authentication
-            stream: Whether the response should be streamed
             **kwargs: Additional request parameters
 
         Returns:
@@ -206,47 +165,12 @@ class TwitterConnection(BaseConnection):
                 response = getattr(oauth, method.lower())(full_url, **kwargs)
 
             if not stream and response.status_code not in [200, 201]:
-                # Tạo đối tượng thông tin lỗi chi tiết
-                error_info = {
-                    "status_code": response.status_code,
-                    "error_text": response.text,
-                    "headers": dict(response.headers),
-                    "is_rate_limit": False
-                }
-                
-                # Xử lý đặc biệt đối với lỗi 429 (rate limit)
-                if response.status_code == 429:
-                    error_info["is_rate_limit"] = True
-                    
-                    # Lấy thời gian reset từ header
-                    reset_time = None
-                    if 'x-rate-limit-reset' in response.headers:
-                        reset_time = int(response.headers['x-rate-limit-reset'])
-                    else:
-                        # Nếu không có header reset, ước tính thời gian reset là 15 phút sau
-                        reset_time = int(time.time()) + 15 * 60
-                    
-                    error_info["reset_time"] = reset_time
-                    
-                    # Log chi tiết về rate limit
-                    remaining = response.headers.get('x-rate-limit-remaining', '0')
-                    limit = response.headers.get('x-rate-limit-limit', 'unknown')
-                    
-                    reset_datetime = datetime.datetime.fromtimestamp(reset_time)
-                    logger.warning(
-                        f"Rate limit exceeded for {endpoint}. "
-                        f"Limit: {limit}, Remaining: {remaining}, "
-                        f"Resets at: {reset_datetime.isoformat()}"
-                    )
-                    
-                    # Tạo thông báo lỗi chi tiết
-                    error_message = f"Twitter API rate limit exceeded. Please try again after reset."
-                else:
-                    # Thông báo lỗi thông thường
-                    error_message = f"Request failed with status {response.status_code}: {response.text}"
-                
-                logger.error(f"Request failed: {response.status_code} - {response.text}")
-                raise TwitterAPIError(error_message, error_info)
+                logger.error(
+                    f"Request failed: {response.status_code} - {response.text}"
+                )
+                raise TwitterAPIError(
+                    f"Request failed with status {response.status_code}: {response.text}"
+                )
 
             logger.debug(f"Request successful: {response.status_code}")
 
@@ -255,12 +179,7 @@ class TwitterConnection(BaseConnection):
         
             return response.json()
 
-        except TwitterAPIError:
-            # Chuyển tiếp ngoại lệ TwitterAPIError đã có thông tin chi tiết
-            raise
         except Exception as e:
-            # Đối với các lỗi khác, wrap trong TwitterAPIError
-            logger.error(f"API request failed: {str(e)}")
             raise TwitterAPIError(f"API request failed: {str(e)}")
 
     def _get_oauth(self) -> OAuth1Session:
@@ -295,16 +214,6 @@ class TwitterConnection(BaseConnection):
             logger.debug(f"Retrieved user ID: {user_id}, username: {username}")
             
             return user_id, username
-        except TwitterAPIError as e:
-            # Xử lý đặc biệt cho lỗi rate limit
-            if e.is_rate_limit and e.reset_time:
-                wait_message = e.get_friendly_wait_time()
-                error_msg = f"Đã vượt quá giới hạn tốc độ Twitter API khi lấy thông tin người dùng. Vui lòng thử lại sau {wait_message}."
-                logger.error(error_msg)
-                raise TwitterConfigurationError(error_msg) from e
-            else:
-                logger.error(f"Failed to get authenticated user info: {str(e)}")
-                raise TwitterConfigurationError("Could not retrieve user information") from e
         except Exception as e:
             logger.error(f"Failed to get authenticated user info: {str(e)}")
             raise TwitterConfigurationError(
@@ -455,14 +364,6 @@ class TwitterConnection(BaseConnection):
             logger.debug("Twitter configuration is valid")
             return True
 
-        except TwitterAPIError as e:
-            if verbose:
-                error_msg = str(e)
-                if e.is_rate_limit:
-                    wait_message = e.get_friendly_wait_time()
-                    error_msg = f"Quá nhiều yêu cầu đến Twitter API. Vui lòng thử lại sau {wait_message}."
-                logger.error(f"Configuration validation failed: {error_msg}")
-            return False
         except Exception as e:
             if verbose:
                 error_msg = str(e)
@@ -487,18 +388,10 @@ class TwitterConnection(BaseConnection):
         if action_name == "read-timeline" and "count" not in kwargs:
             kwargs["count"] = self.config["timeline_read_count"]
 
-        try:
-            # Call the appropriate method based on action name
-            method_name = action_name.replace('-', '_')
-            method = getattr(self, method_name)
-            return method(**kwargs)
-        except TwitterAPIError as e:
-            # Xử lý đặc biệt cho lỗi rate limit
-            if e.is_rate_limit and e.reset_time:
-                wait_message = e.get_friendly_wait_time()
-                return f"❌ Đã vượt quá giới hạn tốc độ Twitter API khi thực hiện '{action_name}'. Vui lòng thử lại sau {wait_message}."
-            # Chuyển tiếp các lỗi khác
-            raise
+        # Call the appropriate method based on action name
+        method_name = action_name.replace('-', '_')
+        method = getattr(self, method_name)
+        return method(**kwargs)
 
     def read_timeline(self, count: int = None, **kwargs) -> list:
         """Read tweets from the user's timeline"""
@@ -673,14 +566,6 @@ class TwitterConnection(BaseConnection):
                     tweet_data = json.loads(line)['data']
                     yield tweet_data
                 
-        except TwitterAPIError as e:
-            # Xử lý đặc biệt cho lỗi rate limit
-            if e.is_rate_limit and e.reset_time:
-                wait_message = e.get_friendly_wait_time()
-                logger.error(f"Rate limit exceeded when streaming tweets. Please try again after {wait_message}")
-                raise TwitterAPIError(f"Rate limit exceeded when streaming tweets. Please try again after {wait_message}")
-            logger.error(f"Error streaming tweets: {str(e)}")
-            raise
         except Exception as e:
             logger.error(f"Error streaming tweets: {str(e)}")
             raise TwitterAPIError(f"Error streaming tweets: {str(e)}")
