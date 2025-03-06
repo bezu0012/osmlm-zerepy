@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir poetry==1.7.1
 RUN poetry config virtualenvs.create false
 
 # Cài đặt dependencies, bao gồm extras cho server
-RUN poetry install --no-dev --extras server --no-interaction --no-ansi
+RUN poetry install --extras server --no-interaction --no-ansi
 
 # Mở cổng, Heroku sẽ ghi đè biến PORT
 EXPOSE 8000
@@ -33,4 +33,4 @@ RUN mkdir -p logs
 ENV PYTHONPATH=/app
 
 # Lệnh để chạy ứng dụng, sử dụng biến PORT của Heroku
-CMD uvicorn src.server.app:app --host 0.0.0.0 --port $PORT 
+CMD python main.py --server --port $PORT 
