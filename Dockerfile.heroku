@@ -1,0 +1,36 @@
+FROM python:3.10-slim-bullseye
+
+# Cài đặt các gói cần thiết
+RUN apt-get update && apt-get install -y \
+    gcc \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Thiết lập thư mục làm việc
+WORKDIR /app
+
+# Sao chép toàn bộ project vào container
+COPY . .
+
+# Cài đặt Poetry
+RUN pip install --no-cache-dir poetry==1.5.1
+
+# Cấu hình Poetry không tạo môi trường ảo trong container
+RUN poetry config virtualenvs.create false
+
+# Cài đặt dependencies
+RUN poetry install --no-dev --no-interaction --no-ansi
+
+# Mở cổng, Heroku sẽ ghi đè biến PORT
+EXPOSE 8000
+
+# Tạo thư mục logs nếu chưa tồn tại
+RUN mkdir -p logs
+
+# Thiết lập các biến môi trường
+ENV PYTHONPATH=/app
+
+# Lệnh để chạy ứng dụng, sử dụng biến PORT của Heroku
+CMD uvicorn src.server.app:app --host 0.0.0.0 --port $PORT 
